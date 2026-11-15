@@ -20,3 +20,4 @@ if ($RABBITMQURI) { $appSettings += "RABBITMQ_URI=$RABBITMQURI" }
 if ($IAAPIKEY) { $appSettings += "IA_API_KEY=$IAAPIKEY" }
 
 az webapp config appsettings set -g $RG -n $WEBAPP --output none --settings $appSettings
+if ($LASTEXITCODE -ne 0) { throw "Falha ao gravar as App Settings no Web App $WEBAPP." }

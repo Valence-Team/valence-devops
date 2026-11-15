@@ -29,6 +29,17 @@ $IAAPIKEY    = Read-Segredo "Chave da API do serviço de IA (Enter para deixar v
 if ($SQLPASS.Length -lt 8 -or $SQLPASS.Length -gt 128) {
     throw "A senha do SQL Server deve ter de 8 a 128 caracteres. Execute o 00-Variaveis.ps1 de novo."
 }
+if ($SQLPASS -cnotmatch '^[A-Za-z0-9@#_-]+$') {
+    throw "A senha do SQL Server aceita apenas letras sem acento, números e os símbolos @ # - _. Execute o 00-Variaveis.ps1 de novo."
+}
+$gruposSenha = 0
+if ($SQLPASS -cmatch '[A-Z]') { $gruposSenha++ }
+if ($SQLPASS -cmatch '[a-z]') { $gruposSenha++ }
+if ($SQLPASS -cmatch '[0-9]') { $gruposSenha++ }
+if ($SQLPASS -cmatch '[@#_-]') { $gruposSenha++ }
+if ($gruposSenha -lt 3) {
+    throw "A senha do SQL Server deve ter pelo menos 3 destes grupos: maiúscula, minúscula, número, símbolo (@ # - _). Execute o 00-Variaveis.ps1 de novo."
+}
 if ($SQLPASS.ToLower().Contains($SQLUSER.ToLower())) {
     throw "A senha do SQL Server não pode conter o usuário $SQLUSER. Execute o 00-Variaveis.ps1 de novo."
 }

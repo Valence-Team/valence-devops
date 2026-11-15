@@ -11,6 +11,9 @@ try {
 
     # Tabelas criadas
     sqlcmd -b -S "$SQLSERVER.database.windows.net" -d $SQLDB -U $SQLUSER -Q "SELECT name FROM sys.tables WHERE name LIKE 'TB[_]%' ORDER BY name"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao listar as tabelas do banco $SQLDB."
+    }
 }
 finally {
     Remove-Item Env:\SQLCMDPASSWORD -ErrorAction SilentlyContinue
