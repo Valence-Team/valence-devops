@@ -8,7 +8,7 @@ API núcleo do **Valence**, uma rede pública e colaborativa de vigilância fito
 | Guilherme Macedo | 562396 |
 | Pedro Henrique | 563405 |
 
-- **Deploy (Azure App Service):** `https://app-valence-api-rm563620.azurewebsites.net/swagger-ui.html` *(confirmar após o primeiro deploy)*
+- **Deploy (Azure App Service):** `https://valence-rm562396.azurewebsites.net/swagger-ui.html` *(confirmar após o primeiro deploy)*
 - **Vídeo pitch:** *(link do YouTube)*
 - **Arquitetura distribuída escolhida (requisito 5):** **opção A, RabbitMQ**, com evento publicado e consumido de forma assíncrona pela própria API.
 
@@ -120,7 +120,7 @@ Para subir a API também em Docker: `docker compose -f dockerfiles/docker-compos
 
 ### Perfil `prod`
 
-Defina `SPRING_PROFILES_ACTIVE=prod` e as variáveis do Azure SQL, do CloudAMQP e do JWT. No Azure, quem faz isso é o script `scripts/infra-criar.sh` e a pipeline.
+Defina `SPRING_PROFILES_ACTIVE=prod` e as variáveis do Azure SQL, do CloudAMQP e do JWT. No Azure, quem faz isso é o script `scripts/06-AppSettings.ps1`.
 
 ## Variáveis de ambiente
 
@@ -129,7 +129,7 @@ Os valores reais nunca vão para o Git; os nomes estão em [`.env.example`](.env
 | Variável | Uso | Padrão |
 | --- | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | `dev` (H2 + RabbitMQ local) ou `prod` (Azure SQL + CloudAMQP) | `dev` |
-| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | Banco do perfil `prod` | |
+| `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | Banco do perfil `prod` | |
 | `JWT_SECRET` | Segredo HS256, mínimo de 32 caracteres; obrigatório em `prod` | gerado a cada início em `dev` |
 | `JWT_EXPIRATION_MINUTES` | Validade do token | 120 |
 | `RABBITMQ_URI` | URI `amqps` do CloudAMQP | `amqp://guest:guest@localhost:5672` |
@@ -276,16 +276,37 @@ Os testes rodam sem rede, sem broker, sem LLM e sem o serviço de IA: o `ChatMod
 
 ## Deploy no Azure
 
-1. **Infraestrutura:** no Azure Cloud Shell (Bash), com o repositório clonado:
-   ```bash
-   export SQL_ADMIN_PASSWORD='senha-forte'
-   export LLM_API_KEY='chave-da-groq'
-   export RABBITMQ_URI='amqps://...'
-   bash scripts/infra-criar.sh
-   ```
-   Cria o Resource Group `rg-valence`, o Azure SQL `sql-valence-rm563620` (banco `valence`, Basic), o plano B1 Linux e o Web App `app-valence-api-rm563620` com Java 21, Always On e as variáveis de ambiente. `scripts/infra-remover.sh` apaga tudo.
-2. **Pipeline:** `azure-pipeline.yml` tem o estágio **Build** (Java 21, `mvn clean package`, testes JUnit publicados e artefato `.jar`) e o estágio **Release** (deploy no App Service e verificação de saúde), que roda automaticamente depois de um artefato novo. O gatilho é a branch `main`, protegida por política de PR.
-3. **Configuração no Azure DevOps:** conexão de serviço `valence-azure` com a assinatura e grupo de variáveis `valence-segredos` com `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `RABBITMQ_URI`, `LLM_API_KEY`, `LLM_MODEL`, `IA_SERVICE_URL` e `IA_API_KEY` (marcar como secretas).
+### Provisionamento (Azure CLI em PowerShell)
+
+Os scripts ficam em `scripts/`, um passo por arquivo, e rodam no Azure Cloud Shell (PowerShell) ou no Windows PowerShell com `az login` feito. Na raiz do repositório, execute na ordem:
+
+```powershell
+. .\scripts\00-Variaveis.ps1
+.\scripts\01-ResourceGroup.ps1
+.\scripts\02-AppServicePlan.ps1
+.\scripts\03-WebApp.ps1
+.\scripts\04-Database.ps1
+.\scripts\05-ScriptBD.ps1
+.\scripts\06-AppSettings.ps1
+```
+
+O `00` é executado com ponto (`. `) para as variáveis ficarem na sessão. Os segredos são digitados de forma oculta e não são gravados em arquivo.
+
+| Script | O que faz |
+| --- | --- |
+| `00-Variaveis.ps1` | Define os nomes dos recursos e lê a senha do SQL, o segredo do JWT e, opcionais, a chave do LLM, a URI do RabbitMQ e a chave do serviço de IA |
+| `01-ResourceGroup.ps1` | Registra os provedores `Microsoft.Web` e `Microsoft.Sql` e cria o Resource Group `rg-valence-rm562396` em `mexicocentral` |
+| `02-AppServicePlan.ps1` | Cria o plano `plan-valence-rm562396` (Linux, B1) |
+| `03-WebApp.ps1` | Cria o Web App `valence-rm562396` com Java 21, Always On, health check em `/actuator/health/liveness` e só HTTPS |
+| `04-Database.ps1` | Cria o Azure SQL `sqlserver-valence-rm562396`, o banco `bd_valence` (Basic) e as regras de firewall para os serviços do Azure e para o IP da máquina |
+| `05-ScriptBD.ps1` | Executa `scripts/script-bd.sql` com o `sqlcmd` e lista as tabelas criadas (o Cloud Shell já tem o `sqlcmd`) |
+| `06-AppSettings.ps1` | Grava as variáveis de ambiente da API no Web App (perfil `prod`, banco, JWT, LLM, RabbitMQ, IA e pasta de fotos) |
+| `07-Remover.ps1` | Remove o Resource Group inteiro: `.\scripts\07-Remover.ps1` |
+
+### Pipelines
+
+- **Build (CI):** `azure-pipeline.yml` instala o Java 21, roda `mvn clean package` com os testes JUnit publicados e publica o artefato `valence-api` com o `.jar`. O gatilho é a branch `main`, protegida por política de PR.
+- **Release (CD):** pipeline clássica (Pipelines ▸ Releases), disparada automaticamente por um novo artefato `valence-api`, faz o deploy do `.jar` no Web App `valence-rm562396`.
 
 ## JSON de CRUD
 
