@@ -1,6 +1,20 @@
-# Valence API
+# Valence · Deploy da API Java no Azure com Azure DevOps
 
-API núcleo do **Valence**, uma rede pública e colaborativa de vigilância fitossanitária para pequenos produtores de milho, tomate e batata. Global Solution FIAP 2026/2, tema CitizenTech, disciplina Java Advanced.
+Global Solution FIAP 2026/2, tema CitizenTech, disciplina **DevOps Tools & Cloud Computing**.
+
+O **Valence** é uma rede pública e colaborativa de vigilância fitossanitária para pequenos produtores de milho, tomate e batata. Este repositório tem o código da API Java do Valence e tudo o que a coloca em produção no Azure: scripts Azure CLI, script do banco, pipeline de Build em YAML e a documentação da Release.
+
+| Link | Endereço |
+| --- | --- |
+| Organização no Azure DevOps | [https://dev.azure.com/valence-devops-rm562396](https://dev.azure.com/valence-devops-rm562396) |
+| Vídeo da disciplina de DevOps | [https://youtu.be/iuB_7Xt6FKA](https://youtu.be/iuB_7Xt6FKA) |
+| API em produção | [https://valence-rm562396.azurewebsites.net](https://valence-rm562396.azurewebsites.net) |
+| Swagger | [https://valence-rm562396.azurewebsites.net/swagger-ui.html](https://valence-rm562396.azurewebsites.net/swagger-ui.html) |
+| Saúde da API | [https://valence-rm562396.azurewebsites.net/actuator/health](https://valence-rm562396.azurewebsites.net/actuator/health) |
+| Versão publicada | [https://valence-rm562396.azurewebsites.net/actuator/info](https://valence-rm562396.azurewebsites.net/actuator/info) |
+| Vídeo pitch (Java Advanced) | [https://youtu.be/tXa5CGyGAFw](https://youtu.be/tXa5CGyGAFw) |
+
+## Integrantes
 
 | Integrante | RM |
 | --- | --- |
@@ -8,369 +22,441 @@ API núcleo do **Valence**, uma rede pública e colaborativa de vigilância fito
 | Guilherme Macedo Martins | 562396 |
 | Pedro Henrique Luiz Alves Duarte | 563405 |
 
-- **Deploy (Azure App Service):** https://valence-rm562396.azurewebsites.net/swagger-ui/index.html
-- **URL base consumida pelo app Mobile:** `https://valence-rm562396.azurewebsites.net`
-- **Vídeo pitch:** https://youtu.be/tXa5CGyGAFw?si=qEKd4yVI-ADRE_SN
-- **Arquitetura distribuída escolhida (requisito 5):** **opção A, RabbitMQ**, com evento publicado e consumido de forma assíncrona pela própria API.
+## Sumário
 
-## O problema e o cidadão beneficiado
+- [Solução e conceito](#solução-e-conceito)
+- [Arquitetura macro](#arquitetura-macro)
+- [Requisitos da disciplina](#requisitos-da-disciplina)
+- [Recursos no Azure](#recursos-no-azure)
+- [Azure Boards e Azure Repos](#azure-boards-e-azure-repos)
+- [Pipelines](#pipelines)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Como provisionar a infraestrutura](#como-provisionar-a-infraestrutura)
+- [Estrutura do repositório](#estrutura-do-repositório)
+- [CRUD em JSON (TB_PROPRIEDADE e TB_OCORRENCIA)](#crud-em-json-tb_propriedade-e-tb_ocorrencia)
+- [Como rodar localmente](#como-rodar-localmente)
+- [Sobre a API](#sobre-a-api)
+- [Uso de IA generativa](#uso-de-ia-generativa)
 
-Comunidades rurais isoladas descobrem pragas tarde, sem técnico por perto e sem canal rápido entre vizinhos e poder público. Segundo a FAO, cerca de 40% da produção agrícola global se perde para pragas; a Embrapa estima que a cigarrinha-do-milho causa US$ 6,5 bilhões de prejuízo por ano no Brasil.
+## Solução e conceito
 
-Com o Valence, o **agricultor familiar** registra um dano na lavoura pelo app (foto e descrição). A IA faz uma triagem inicial, as propriedades vizinhas recebem um alerta de suspeita e um **agrônomo** confirma ou descarta o caso. Casos confirmados viram aviso no mural da região e dados abertos e anonimizados para o **poder público** (Observatório .NET).
+Comunidades rurais isoladas descobrem pragas tarde, sem técnico por perto e sem canal rápido entre vizinhos e poder público. Segundo a FAO, cerca de 40% da produção agrícola global se perde para pragas.
 
-ODS atendidos: 2 (fome zero e agricultura sustentável), 9 (inovação e infraestrutura), 10 (redução das desigualdades) e 13 (ação contra a mudança do clima).
+Com o Valence, o **agricultor familiar** registra pelo app um dano na lavoura (foto e descrição). A IA faz uma triagem inicial, as propriedades vizinhas recebem um alerta de suspeita e um **agrônomo** confirma ou descarta o caso. Casos confirmados viram aviso no mural da região e dados abertos e anonimizados para o **poder público**.
+
+Na nuvem roda a **API Java** (Spring Boot 3.5, Java 21, arquivo `valence-api.jar`) no **Azure App Service** (Linux), com os dados no **Azure SQL Database**. O ciclo de entrega usa o Azure DevOps inteiro:
+
+- **Azure Boards:** cada mudança nasce de uma Task.
+- **Azure Repos:** guarda o código, com a branch `main` protegida.
+- **Azure Pipelines:** o Build (CI) compila, roda os testes JUnit e publica o artefato. A Release (CD) publica o artefato no Web App.
+
+A infraestrutura é criada por scripts Azure CLI que ficam neste repositório.
+
+## Arquitetura macro
+
+![Arquitetura DevOps do Valence](docs/arquitetura-devops.png)
+
+Fonte editável: [`docs/arquitetura-devops.drawio`](docs/arquitetura-devops.drawio) (abre no [diagrams.net](https://app.diagrams.net)).
+
+**Legenda das setas**
+
+| Seta | Significado |
+| --- | --- |
+| Azul tracejada | Fluxo de CI/CD: código, Build, Release e deploy |
+| Contínua | Tráfego da aplicação em produção (HTTPS, JDBC, AMQPS) |
+| Verde pontilhada | Provisionamento por script Azure CLI |
+| Cinza pontilhada | Vínculo: Boards e Repos, Library e espelho no GitHub |
+
+**Fluxo DevOps a cada mudança**
+
+1. O desenvolvedor cria a Task no Azure Boards.
+2. Cria a branch pela Task, faz o commit citando o `#ID` da Task e abre o Pull Request para a `main`.
+3. Com revisão e work item vinculado, o merge na `main` protegida dispara o Build (CI).
+4. O Build compila com Java 21, roda os testes JUnit e publica os resultados e o artefato `valence-api`.
+5. O novo artefato dispara a Release (CD) automaticamente.
+6. A Release usa a service connection e o grupo de variáveis para publicar o `.jar` e as App Settings no Web App.
+7. A API grava no Azure SQL (JDBC 1433) e atende o app Mobile e o navegador (HTTPS 443).
 
 ## Requisitos da disciplina
 
+**Tarefas obrigatórias**
+
+| Tarefa | Como foi atendida |
+| --- | --- |
+| 1 Provisionamento em nuvem | Scripts Azure CLI em [`scripts/`](scripts) criam o Resource Group, o App Service Plan, o Web App, o servidor e o banco Azure SQL, e executam o [`script-bd.sql`](scripts/script-bd.sql) |
+| 2 Projeto no Azure DevOps | Organização `valence-devops-rm562396`, projeto `Valence` privado, com o professor como Basic na organização e Project Administrator no projeto |
+| 3 Azure Repos | Repositório `valence-java` com o código-fonte da API |
+| 4 Azure Boards | Tasks com branches, commits e Pull Requests vinculados |
+| 5 Pipeline de Build | `valence-java-CI` em YAML ([`azure-pipeline.yml`](azure-pipeline.yml)), automática na `main`, publica o artefato e os testes JUnit |
+| 6 Pipeline de Release | `valence-java-Release`, clássica, disparada automaticamente por cada novo artefato do Build |
+
+**Requisitos**
+
 | Requisito | Como foi atendido |
 | --- | --- |
-| 01 API REST do domínio | 11 entidades JPA relacionadas, CRUD completo de propriedade, ocorrência e publicação do mural, paginação em todas as listagens |
-| 02 Validação e erros | Bean Validation em todos os DTOs de entrada e `@RestControllerAdvice` (`GlobalExceptionHandler`) com o formato de erro único |
-| 03 Segurança | Spring Security stateless com JWT (HS256), senhas com BCrypt, papéis `PRODUTOR`, `AGRONOMO` e `GESTOR` e `@PreAuthorize` em cada endpoint |
-| 04 Spring AI | Triagem da ocorrência e análise de denúncia com `ChatClient` e saída estruturada convertida em objeto Java |
-| 05 Arquitetura distribuída | Opção A: publica `ocorrencia.triada` e `laudo.emitido` na exchange `valence.eventos` e consome `ocorrencia.triada` na fila `valence.java.alertas` para gerar alertas |
-| 06 Documentação e integração | Swagger/OpenAPI, este README, coleção do Postman e contrato consumido pelo app Mobile |
+| 01 Projeto privado com Git | Projeto `Valence`, privado, controle de versão Git, processo Scrum |
+| 02 Boards vinculado ao Repos | Commits e PRs citam o `#ID` da Task; a Task mostra branch, commits e PRs na seção Development |
+| 03 Branch principal protegida | Revisor obrigatório, work item vinculado obrigatório, revisor padrão `RM562396` e comentários resolvidos |
+| 04 Build só após merge via PR | Gatilho na `main`, que não aceita push direto; `pr: none` no YAML |
+| 05 Aluno aprova a própria PR | Política com aprovação do próprio autor permitida |
+| 06 Release automática | Gatilho de implantação contínua no artefato `valence-api` |
+| 07 Deploy em Serviço de Aplicativo | Azure App Service Linux, Java 21 |
+| 08 Banco PaaS | Azure SQL Database `bd_valence` |
+| 09 Scripts de infraestrutura no repositório | Pasta [`scripts/`](scripts) |
+| 10 `script-bd.sql` em `/scripts` | [`scripts/script-bd.sql`](scripts/script-bd.sql), DDL das 12 tabelas `TB_` |
+| 11 Scripts Azure CLI em `/scripts` | `00` a `07`, em PowerShell |
+| 12 Dockerfiles em `/dockerfiles` | [`dockerfiles/`](dockerfiles), usados no desenvolvimento local; o deploy é no App Service |
+| 13 `azure-pipeline.yml` na raiz | [`azure-pipeline.yml`](azure-pipeline.yml) |
+| 14 CRUD em JSON | Seção [CRUD em JSON](#crud-em-json-tb_propriedade-e-tb_ocorrencia) e Swagger em produção |
+| 15 Variáveis de ambiente nas pipelines | Grupo `valence-variaveis` vinculado à Release; segredos marcados como secretos |
+| 16 Desenho macro da arquitetura | Seção [Arquitetura macro](#arquitetura-macro), com legenda e fluxo numerado |
+| 17 Testes automáticos no CI | 52 testes JUnit publicados na aba Tests de cada Build |
 
-## Arquitetura
+## Recursos no Azure
 
-![Arquitetura do Valence](docs/arquitetura.png)
+| Recurso | Nome | Configuração |
+| --- | --- | --- |
+| Assinatura | Azure for Students | RM 562396 |
+| Região | `mexicocentral` | |
+| Resource Group | `rg-valence-rm562396` | |
+| App Service Plan | `plan-valence-rm562396` | Linux, B1 |
+| Web App | `valence-rm562396` | Java 21, Always On, só HTTPS, health check em `/actuator/health/liveness` |
+| Servidor SQL | `sqlserver-valence-rm562396` | Firewall para os serviços do Azure e para o IP do cliente |
+| Banco | `bd_valence` | Basic, usuário administrador `valenceadmin` |
 
-1. **Usuários:** produtor, agrônomo e gestor público.
-2. **App Mobile** (React Native): única interface; fala só com esta API, por REST e JWT.
-3. **API Java** (este repositório): núcleo do domínio, segurança, triagem, alertas, laudos, mural e moderação.
-4. **Azure SQL:** banco do perfil `prod`. Em desenvolvimento, H2 em arquivo.
-5. **Serviço de IA** (Python): classifica a foto da folha e busca trechos de fichas técnicas (RAG).
-6. **LLM** (Groq, compatível com a API da OpenAI): usado pelo Spring AI na triagem e na análise de denúncias.
-7. **RabbitMQ** (CloudAMQP): exchange `valence.eventos` (topic) com a fila da própria API e a fila do Observatório.
-8. **Observatório .NET:** consome os eventos e publica dados abertos anonimizados.
-9. **Azure DevOps:** Boards, Repos e Pipelines (CI com testes JUnit e CD para o App Service).
+## Azure Boards e Azure Repos
 
-Fonte do diagrama: [`docs/arquitetura.mmd`](docs/arquitetura.mmd).
+- **Organização:** [https://dev.azure.com/valence-devops-rm562396](https://dev.azure.com/valence-devops-rm562396)
+- **Projeto:** `Valence`, privado, Git, processo Scrum.
+- **Boards:** uma Task por mudança, na Sprint 1, com a tag `DevOps`. A branch é criada pela própria Task, e o commit e o PR citam o `#ID` dela. Assim, branch, commits, PR e merge ficam vinculados ao work item.
+- **Repos:** repositório `valence-java`, branch padrão `main`.
+- **Políticas da `main`:**
+  - mínimo de 1 revisor, com aprovação do próprio autor permitida;
+  - revisor obrigatório incluído automaticamente: `RM562396`;
+  - work item vinculado obrigatório;
+  - comentários resolvidos obrigatórios.
 
-## Tecnologias e versões
+  Um push direto na `main` é recusado (TF402455). O código só entra por Pull Request.
 
-| Item | Versão |
+## Pipelines
+
+### Build (CI): `valence-java-CI`
+
+| Item | Valor |
 | --- | --- |
-| Java | 21 |
-| Spring Boot | 3.5.16 (Web, Data JPA, Validation, Security, AMQP, Actuator) |
-| Spring AI | 1.1.8 (`spring-ai-starter-model-openai` apontando para a Groq) |
-| JWT | `com.auth0:java-jwt` 4.5.0 |
-| Documentação | springdoc-openapi 2.8.17 |
-| Banco | H2 (dev e testes) e Azure SQL com `mssql-jdbc` (prod) |
-| Mensageria | RabbitMQ 4 (Docker em dev, CloudAMQP em prod) |
-| Build | Maven 3.9.11 pelo Maven Wrapper |
-| Testes | JUnit 5, Spring Boot Test, MockMvc, Mockito |
-| Outras | Lombok |
+| Definição | YAML, [`azure-pipeline.yml`](azure-pipeline.yml) na raiz |
+| Gatilho | Branch `main`, que só recebe código por merge de PR (`pr: none`) |
+| Agente | Microsoft-hosted `ubuntu-latest` |
 
-## Estrutura do projeto
+| Etapa | Tarefa | O que faz |
+| --- | --- | --- |
+| 1 | `JavaToolInstaller@0` | Seleciona o Java 21 |
+| 2 | `Maven@4` | `clean package`: compila, roda os testes JUnit e publica os resultados (`**/surefire-reports/TEST-*.xml`) |
+| 3 | `CopyFiles@2` | Copia o `target/valence-api.jar` para a área de artefatos |
+| 4 | `PublishBuildArtifacts@1` | Publica o artefato `valence-api` |
+
+Resultados de cada execução: aba **Tests** (52 testes) e artefato **valence-api** em Related ▸ Published.
+
+### Release (CD): `valence-java-Release`
+
+| Item | Valor |
+| --- | --- |
+| Tipo | Pipeline clássica (Pipelines ▸ Releases) |
+| Artefato | `valence-api`, do Build `valence-java-CI` |
+| Gatilho | Implantação contínua: cada novo artefato da `main` dispara a Release |
+| Variáveis | Grupo `valence-variaveis` (Library), vinculado à Release |
+| Service connection | `valence-connection`, Azure Resource Manager com Workload identity federation |
+| Stage | `Producao`, Agent job `ubuntu-latest` |
+
+| Etapa | Tarefa | O que faz |
+| --- | --- | --- |
+| 1 | Download do artefato | Baixa o `valence-api` gerado pelo Build |
+| 2 | Azure App Service deploy | Web App on Linux `valence-rm562396`, pilha `JAVA\|21-java21`, Zip Deploy, App Settings vindas do grupo de variáveis e comando de inicialização `java -jar /home/site/wwwroot/valence-api.jar` |
+| 3 | Bash | Chama o `/actuator/health/liveness` até a API responder `UP` |
+
+## Variáveis de ambiente
+
+Os valores reais ficam só no grupo de variáveis `valence-variaveis` e nas App Settings do Web App. Nunca vão para o Git. Os nomes, com valores fictícios, estão em [`.env.example`](.env.example).
+
+| Variável | Secreta | Uso |
+| --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | não | Perfil `prod` (Azure SQL e CloudAMQP) |
+| `SERVER_PORT` | não | Porta 80 do App Service |
+| `SPRING_DATASOURCE_URL` | não | URL JDBC do Azure SQL |
+| `SPRING_DATASOURCE_USERNAME` | não | Usuário do banco |
+| `SPRING_DATASOURCE_PASSWORD` | **sim** | Senha do banco |
+| `JWT_SECRET` | **sim** | Segredo HS256 do JWT, com pelo menos 32 caracteres |
+| `JWT_EXPIRATION_MINUTES` | não | Validade do token |
+| `RABBITMQ_URI` | **sim** | URI `amqps` do CloudAMQP |
+| `LLM_API_KEY` | **sim** | Chave do LLM usado pelo Spring AI |
+| `LLM_BASE_URL` | não | Endereço do provedor do LLM |
+| `LLM_MODEL` | não | Modelo do LLM |
+| `IA_TIMEOUT_SECONDS` | não | Tempo limite das chamadas ao serviço de IA |
+| `IA_CONFIANCA_MINIMA` | não | Abaixo desse valor, a ocorrência vai para o agrônomo sem alerta automático |
+| `ALERTA_RAIO_KM` | não | Raio dos alertas entre vizinhos |
+| `FOTOS_DIR` | não | Pasta das fotos no App Service (`/home/data/fotos`) |
+| `VALENCE_TRIAGEM_AGENDADOR_HABILITADO` | não | Liga ou desliga a triagem automática das ocorrências sem foto |
+
+## Como provisionar a infraestrutura
+
+Os scripts ficam em [`scripts/`](scripts), um passo por arquivo, em PowerShell com Azure CLI.
+
+1. Faça login no Azure:
+   ```powershell
+   az login
+   ```
+2. Na raiz do repositório, carregue as variáveis com ponto (`. `) para que fiquem na sessão. O script pede a senha do SQL e o segredo do JWT de forma oculta, sem gravar em arquivo:
+   ```powershell
+   . .\scripts\00-Variaveis.ps1
+   ```
+3. Execute os demais na ordem:
+   ```powershell
+   .\scripts\01-ResourceGroup.ps1
+   .\scripts\02-AppServicePlan.ps1
+   .\scripts\03-WebApp.ps1
+   .\scripts\04-Database.ps1
+   .\scripts\05-ScriptBD.ps1
+   .\scripts\06-AppSettings.ps1
+   ```
+4. Para apagar tudo: `.\scripts\07-Remover.ps1`.
+
+| Script | O que faz |
+| --- | --- |
+| `00-Variaveis.ps1` | Define os nomes dos recursos e lê, de forma oculta, a senha do SQL e o segredo do JWT |
+| `01-ResourceGroup.ps1` | Cria o Resource Group `rg-valence-rm562396` em `mexicocentral` |
+| `02-AppServicePlan.ps1` | Cria o plano `plan-valence-rm562396` (Linux, B1) |
+| `03-WebApp.ps1` | Cria o Web App `valence-rm562396` com Java 21 e liga o Always On |
+| `04-Database.ps1` | Cria o servidor `sqlserver-valence-rm562396`, o banco `bd_valence` (Basic) e as regras de firewall para os serviços do Azure e para o IP da máquina |
+| `05-ScriptBD.ps1` | Executa o [`script-bd.sql`](scripts/script-bd.sql) no banco com o `sqlcmd` |
+| `06-AppSettings.ps1` | Grava no Web App as variáveis mínimas para a API subir: perfil `prod`, porta, conexão com o banco e segredo do JWT. As demais vêm da Release |
+| `07-Remover.ps1` | Remove o Resource Group inteiro, com todos os recursos |
+
+A senha do SQL precisa ter de 8 a 128 caracteres e pelo menos 3 destes 4 grupos: maiúscula, minúscula, número e símbolo. Use só os símbolos `@ # - _`, porque outros quebram a linha de comando do `az`. A senha não pode conter o nome do usuário `valenceadmin`.
+
+## Estrutura do repositório
 
 ```
-src/main/java/br/com/valence/api
-  clients/       cliente HTTP do serviço de IA (tempo limite e chave X-API-Key)
-  configs/       segurança, RabbitMQ, OpenAPI e usuários de teste
-  consumers/     consumidor RabbitMQ de ocorrencia.triada
-  controllers/   endpoints REST
-  dtos/          entrada (Bean Validation), saída, eventos e estruturas da IA
-  enums/         papéis, culturas e status
-  exceptions/    exceções de negócio e @RestControllerAdvice
-  mappers/       conversão de entidade para resposta
-  models/        entidades JPA (tabelas TB_*)
-  producers/     publicação de eventos depois do commit
-  repositories/  Spring Data JPA
-  schedulers/    triagem das ocorrências que ficaram sem foto
-  security/      JWT, filtro e respostas 401/403
-  services/      regras de negócio e Spring AI
-  utils/         distância geográfica e mascaramento de dados pessoais
-scripts/         script-bd.sql e scripts Azure CLI
-dockerfiles/     Dockerfile da API e docker-compose do RabbitMQ
-postman/         coleção do Postman
-azure-pipeline.yml
+azure-pipeline.yml   Build (CI) do Azure DevOps
+scripts/             provisionamento em Azure CLI (PowerShell)
+  00-Variaveis.ps1     nomes dos recursos e leitura dos segredos
+  01-ResourceGroup.ps1
+  02-AppServicePlan.ps1
+  03-WebApp.ps1
+  04-Database.ps1
+  05-ScriptBD.ps1      executa o script-bd.sql
+  06-AppSettings.ps1
+  07-Remover.ps1       remove o Resource Group
+  script-bd.sql        DDL das 12 tabelas TB_
+dockerfiles/         Dockerfile da API e docker-compose.yml do perfil dev
+docs/                diagrama de arquitetura (PNG e fonte .drawio)
+postman/             coleção do Postman
+src/                 código-fonte e testes da API
+.env.example         nomes das variáveis de ambiente com valores fictícios
+pom.xml, mvnw        build Maven pelo Maven Wrapper
 ```
 
-## Como rodar
+## CRUD em JSON (TB_PROPRIEDADE e TB_OCORRENCIA)
 
-### Pré-requisitos
+Execute no Swagger em produção ([https://valence-rm562396.azurewebsites.net/swagger-ui.html](https://valence-rm562396.azurewebsites.net/swagger-ui.html)) e confira cada passo no Azure SQL (Portal do Azure ▸ banco `bd_valence` ▸ Editor de consultas). Os ids e as datas são exemplos: use os que a API devolver.
 
-- JDK 21 (`java -version`).
-- Docker Desktop, para o RabbitMQ local. Sem ele a API sobe do mesmo jeito: os eventos não são publicados e o restante funciona.
-- Não é preciso instalar Maven: o projeto usa o Maven Wrapper.
+Ordem recomendada: crie a propriedade, faça o CRUD da ocorrência e exclua a propriedade por último. Uma propriedade com ocorrências não pode ser excluída (409).
 
-### Passo a passo (perfil `dev`)
+### 1. Autenticação
 
-1. Suba o RabbitMQ local:
+`POST /api/auth/registrar` (público)
+
+```json
+{
+  "nome": "Produtor Demonstracao",
+  "email": "produtor.demo@exemplo.com",
+  "senha": "SUA-SENHA",
+  "municipio": "Campinas",
+  "uf": "SP"
+}
+```
+
+Resposta: **201 Created** com o `token`. Um e-mail já cadastrado devolve 409; nesse caso, use `POST /api/auth/login` com `email` e `senha`.
+
+No Swagger, clique em **Authorize**, cole só o valor do `token` e confirme.
+
+### 2. Propriedade
+
+**Create:** `POST /api/propriedades`
+
+```json
+{
+  "nome": "Sítio Boa Vista",
+  "municipio": "Campinas",
+  "uf": "SP",
+  "latitude": -22.9056,
+  "longitude": -47.0608,
+  "areaHectares": 12.5,
+  "culturas": ["MILHO", "BATATA"]
+}
+```
+
+Resposta: **201 Created**, com o cabeçalho `Location: /api/propriedades/{id}`
+
+```json
+{
+  "id": 3,
+  "nome": "Sítio Boa Vista",
+  "municipio": "Campinas",
+  "uf": "SP",
+  "latitude": -22.9056,
+  "longitude": -47.0608,
+  "areaHectares": 12.5,
+  "culturas": ["MILHO", "BATATA"],
+  "criadoEm": "2026-11-19T21:10:00Z"
+}
+```
+
+**Read:** `GET /api/propriedades/{id}` responde **200 OK** com o mesmo corpo. A lista paginada fica em `GET /api/propriedades?page=0&size=10`.
+
+**Update:** `PUT /api/propriedades/{id}`
+
+```json
+{
+  "nome": "Sítio Boa Vista II",
+  "municipio": "Campinas",
+  "uf": "SP",
+  "latitude": -22.9056,
+  "longitude": -47.0608,
+  "areaHectares": 15.0,
+  "culturas": ["MILHO", "BATATA", "TOMATE"]
+}
+```
+
+Resposta: **200 OK** com os dados atualizados.
+
+**Delete:** `DELETE /api/propriedades/{id}` responde **204 No Content**. Faça esse passo depois do CRUD da ocorrência.
+
+**SELECT no banco**
+
+```sql
+SELECT p.id, p.nome, p.municipio, p.uf, p.latitude, p.longitude,
+       p.area_hectares, p.criado_em, p.usuario_id,
+       STRING_AGG(c.cultura, ', ') AS culturas
+FROM dbo.TB_PROPRIEDADE p
+LEFT JOIN dbo.TB_PROPRIEDADE_CULTURA c ON c.propriedade_id = p.id
+WHERE p.nome LIKE N'Sítio Boa Vista%'
+GROUP BY p.id, p.nome, p.municipio, p.uf, p.latitude, p.longitude,
+         p.area_hectares, p.criado_em, p.usuario_id;
+```
+
+### 3. Ocorrência
+
+Faça os passos em sequência. Edição e remoção só são aceitas com a ocorrência em `RECEBIDA` ou `TRIADA` (fora disso, 422).
+
+**Create:** `POST /api/ocorrencias`. O cabeçalho `Idempotency-Key` é opcional e, se enviado, precisa ser um UUID. Sem ele, o servidor gera a chave.
+
+```json
+{
+  "propriedadeId": 3,
+  "cultura": "MILHO",
+  "descricao": "Folhas com manchas amareladas e furos nas espigas do talhao norte."
+}
+```
+
+Resposta: **201 Created**, com o cabeçalho `Location: /api/ocorrencias/{ocorrenciaId}`
+
+```json
+{
+  "id": 1,
+  "cultura": "MILHO",
+  "descricao": "Folhas com manchas amareladas e furos nas espigas do talhao norte.",
+  "status": "RECEBIDA",
+  "severidade": null,
+  "pragaProvavel": null,
+  "dataRegistro": "2026-11-19T21:15:00Z",
+  "atualizadoEm": "2026-11-19T21:15:00Z",
+  "propriedade": { "id": 3, "nome": "Sítio Boa Vista II", "municipio": "Campinas", "uf": "SP" },
+  "fotos": [],
+  "triagem": null,
+  "laudo": null
+}
+```
+
+**Read:** `GET /api/ocorrencias/{ocorrenciaId}` responde **200 OK**. A lista fica em `GET /api/ocorrencias?page=0&size=10&sort=dataRegistro,desc`.
+
+**Update:** `PUT /api/ocorrencias/{ocorrenciaId}`
+
+```json
+{
+  "propriedadeId": 3,
+  "cultura": "MILHO",
+  "descricao": "Manchas amareladas aumentaram e apareceram lagartas no cartucho."
+}
+```
+
+Resposta: **200 OK**. No banco, a coluna `versao` é incrementada (controle de concorrência otimista) e `atualizado_em` muda.
+
+**Delete:** `DELETE /api/ocorrencias/{ocorrenciaId}` responde **204 No Content**.
+
+**SELECT no banco**
+
+```sql
+SELECT o.id, o.propriedade_id, o.cultura, o.descricao, o.status,
+       o.severidade, o.versao, o.data_registro, o.atualizado_em
+FROM dbo.TB_OCORRENCIA o
+JOIN dbo.TB_PROPRIEDADE p ON p.id = o.propriedade_id
+WHERE p.nome LIKE N'Sítio Boa Vista%';
+```
+
+## Como rodar localmente
+
+Pré-requisitos: JDK 21 e, opcionalmente, Docker Desktop para o RabbitMQ. O Maven vem pelo Maven Wrapper.
+
+1. Suba o RabbitMQ local (painel em [http://localhost:15672](http://localhost:15672), usuário e senha `guest`):
    ```bash
    docker compose -f dockerfiles/docker-compose.yml up -d
    ```
-   Painel: http://localhost:15672 (usuário e senha `guest`).
-2. Crie o arquivo `.env` a partir do exemplo e preencha a chave da Groq (`LLM_API_KEY`). Sem chave a API sobe e a triagem cai no fallback (vai direto para o agrônomo).
+2. Crie o `.env` a partir do exemplo. Sem a chave do LLM a API sobe, e a triagem encaminha o caso direto ao agrônomo.
    ```bash
    cp .env.example .env
    ```
-3. Rode os testes e suba a API:
+3. Rode os testes e suba a API (no Windows, use `.\mvnw.cmd`):
    ```bash
    ./mvnw test
    ./mvnw spring-boot:run
    ```
-   No Windows (PowerShell ou CMD): `.\mvnw.cmd test` e `.\mvnw.cmd spring-boot:run`.
-4. Acesse o Swagger em http://localhost:8080/swagger-ui.html, faça login em `POST /api/auth/login` com um usuário de teste, copie o `token` e clique em **Authorize**.
+4. Abra [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html).
 
-O perfil `dev` grava o H2 em `./data/valence-db` e as fotos em `./data/fotos`. Para começar do zero, apague a pasta `data`.
+O perfil `dev` usa H2 em `./data/valence-db`. Para subir a API também em Docker: `docker compose -f dockerfiles/docker-compose.yml --profile completo up -d --build`.
 
-Para subir a API também em Docker: `docker compose -f dockerfiles/docker-compose.yml --profile completo up -d --build`.
+## Sobre a API
 
-### Perfil `prod`
-
-Defina `SPRING_PROFILES_ACTIVE=prod` e as variáveis do Azure SQL, do CloudAMQP e do JWT. No Azure, quem faz isso é o script `scripts/06-AppSettings.ps1`.
-
-## Variáveis de ambiente
-
-Os valores reais nunca vão para o Git; os nomes estão em [`.env.example`](.env.example).
-
-| Variável | Uso | Padrão |
-| --- | --- | --- |
-| `SPRING_PROFILES_ACTIVE` | `dev` (H2 + RabbitMQ local) ou `prod` (Azure SQL + CloudAMQP) | `dev` |
-| `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | Banco do perfil `prod` | |
-| `JWT_SECRET` | Segredo HS256, mínimo de 32 caracteres; obrigatório em `prod` | gerado a cada início em `dev` |
-| `JWT_EXPIRATION_MINUTES` | Validade do token | 120 |
-| `RABBITMQ_URI` | URI `amqps` do CloudAMQP | `amqp://guest:guest@localhost:5672` |
-| `IA_SERVICE_URL`, `IA_TIMEOUT_SECONDS`, `IA_API_KEY` | Serviço de IA, tempo limite e chave enviada no `X-API-Key` | `http://localhost:8000`, 10, vazio |
-| `IA_CONFIANCA_MINIMA` | Abaixo disso, sem alerta automático | 0.6 |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Provedor do Spring AI | Groq, sem chave, `openai/gpt-oss-120b` |
-| `LLM_COMPLETIONS_PATH`, `LLM_TIMEOUT_SECONDS` | Caminho do endpoint de chat e tempo limite | `/v1/chat/completions`, 20 |
-| `ALERTA_RAIO_KM` | Raio dos alertas | 10 |
-| `FOTOS_DIR` | Pasta das fotos | `./data/fotos` (`/home/data/fotos` no Azure) |
-| `CORS_ORIGENS` | Origens de navegador liberadas, separadas por vírgula. Para o app Mobile no navegador (`npx expo start` e tecla w), use `http://localhost:8081` | vazio |
-
-## Usuários de teste
-
-Criados automaticamente na primeira inicialização (as senhas ficam no código só como hash BCrypt).
-
-| Papel | E-mail | Senha |
-| --- | --- | --- |
-| PRODUTOR | `produtor@valence.local` | `Produtor@2026` |
-| PRODUTOR (vizinho, a cerca de 6 km) | `vizinho@valence.local` | `Vizinho@2026` |
-| AGRONOMO | `agronomo@valence.local` | `Agronomo@2026` |
-| GESTOR | `gestor@valence.local` | `Gestor@2026` |
-
-O produtor e o vizinho já têm uma propriedade de milho cada, em Ribeirão Preto/SP, para a demonstração do alerta entre vizinhos.
-
-## Endpoints principais
-
-Listas aceitam `?page=0&size=10&sort=campo,desc` e respondem com `content`, `totalElements`, `totalPages`, `number`, `size`, `first` e `last`.
-
-| Método | Rota | Papel | Descrição |
-| --- | --- | --- | --- |
-| POST | `/api/auth/registrar` | público | Cadastro de produtor; devolve o token |
-| POST | `/api/auth/login` | público | Login |
-| GET, PUT | `/api/usuarios/me` | autenticado | Perfil do usuário logado |
-| GET, POST | `/api/propriedades` | PRODUTOR | Lista paginada e cadastro |
-| GET, PUT, DELETE | `/api/propriedades/{id}` | PRODUTOR | Detalhe, edição e remoção |
-| GET, POST | `/api/ocorrencias` | PRODUTOR | Lista (filtro `status`) e registro com `Idempotency-Key` |
-| GET | `/api/ocorrencias/{id}` | dono, AGRONOMO, GESTOR | Detalhe com triagem e laudo |
-| PUT, DELETE | `/api/ocorrencias/{id}` | dono | Edição e remoção enquanto `RECEBIDA` ou `TRIADA` |
-| POST | `/api/ocorrencias/{id}/fotos` | dono | Envio da foto (parte `foto`) e triagem |
-| GET | `/api/ocorrencias/{id}/fotos/{fotoId}` | dono, AGRONOMO, GESTOR | Bytes da foto |
-| POST | `/api/ocorrencias/{id}/triagem` | dono | Reprocessa a triagem |
-| GET | `/api/alertas` | PRODUTOR | Alertas das propriedades do usuário |
-| PATCH | `/api/alertas/{id}/lido` | PRODUTOR | Marca como lido |
-| GET | `/api/analises` | AGRONOMO | Fila `TRIADA` e `EM_ANALISE` por severidade |
-| POST | `/api/ocorrencias/{id}/laudo` | AGRONOMO | Emite o laudo |
-| GET, POST | `/api/mural` | autenticado | Publicações da região e nova publicação |
-| GET, PUT, DELETE | `/api/mural/{id}` | autenticado, autor, autor ou moderador | Detalhe, edição e remoção |
-| GET, POST | `/api/mural/{id}/comentarios` | autenticado | Comentários |
-| POST | `/api/mural/{id}/denuncias` | autenticado | Denúncia analisada pelo Spring AI (409 se repetir) |
-| GET | `/api/moderacao` | AGRONOMO, GESTOR | Publicações com denúncias pendentes |
-| PATCH | `/api/moderacao/{postId}` | AGRONOMO, GESTOR | Decisão `MANTER` ou `REMOVER` |
-| GET | `/actuator/health` | público | Saúde da API |
-| GET | `/swagger-ui.html` | público | Documentação |
-
-## Fluxo de autenticação JWT
-
-1. `POST /api/auth/login` envia e-mail e senha ao `AuthenticationManager`, que usa o `AutenticacaoService` (`UserDetailsService`) e compara a senha com o hash BCrypt.
-2. Com a senha certa, o `TokenService` assina um JWT HS256 com `sub` (id do usuário), `email`, `papel`, `iat`, `exp` e emissor `valence-api`.
-3. O app envia `Authorization: Bearer <token>` em toda requisição.
-4. O `SecurityFilter` valida assinatura, emissor e expiração, carrega o usuário e coloca no `SecurityContext` a autoridade `ROLE_<PAPEL>`. A sessão é stateless.
-5. O `SecurityFilterChain` exige token em tudo que não é público, e cada controller declara o papel com `@PreAuthorize`. Sem token ou com token inválido: 401 com `WWW-Authenticate: Bearer`; papel errado: 403. Os dois no formato de erro do contrato.
-
-## Spring AI
-
-As duas funcionalidades de IA generativa estão dentro do fluxo do produto, não em um chat solto.
-
-**Triagem da ocorrência** (`TriagemService` e `TriagemIaService`)
-1. O produtor envia a foto. A API chama o serviço de IA para classificar a folha (visão computacional) e consultar as fichas técnicas (RAG), com tempo limite.
-2. O `ChatClient` recebe uma instrução de sistema (papel, domínio, idioma e limites, como nunca citar agrotóxico ou dose) e os dados da ocorrência sem dados pessoais.
-3. A resposta vem como JSON e o Spring AI converte para o record `TriagemIaDto` com `.entity(...)`. A API normaliza o resultado (remove cuidados com produto ou dose, limita o texto do alerta a 200 caracteres) e valida com Bean Validation.
-4. Com confiança acima de `IA_CONFIANCA_MINIMA`, a ocorrência fica `TRIADA` e o evento `ocorrencia.triada` é publicado. Caso contrário, vai para `EM_ANALISE`, sem alerta automático.
-
-**Análise de denúncia** (`DenunciaService` e `DenunciaIaService`)
-1. Antes do LLM, uma regra local detecta telefone, e-mail, CPF ou coordenada no texto; nesse caso a denúncia já é `DADOS_PESSOAIS`, gravidade `ALTA`, sem enviar o texto ao modelo.
-2. Nos demais casos, o `ChatClient` devolve `AnaliseDenunciaIaDto` (categoria, gravidade, ação e justificativa).
-3. Gravidade `ALTA` oculta a publicação de forma provisória e ela entra na fila de moderação. A IA nunca remove: quem decide é o agrônomo ou o gestor.
-
-**Falhas tratadas:** serviço de IA fora do ar (a triagem segue só com o texto), LLM sem chave, sem cota, com limite de requisições, fora do ar ou com resposta fora do formato (a ocorrência vai para o agrônomo e a denúncia fica pendente para moderação humana). O motivo vai para o log sem expor segredos. Nenhum nome, e-mail, telefone ou coordenada é enviado ao modelo.
-
-## Arquitetura distribuída (opção A, RabbitMQ)
-
-| Item | Valor |
+| Item | Detalhe |
 | --- | --- |
-| Exchange | `valence.eventos`, tipo topic, durável |
-| Fila da API Java | `valence.java.alertas`, ligada a `ocorrencia.triada` |
-| Fila do Observatório | `valence.observatorio` (declarada pelo .NET) |
-| Publicados pela API | `ocorrencia.triada` (triagem confiável) e `laudo.emitido` (todo laudo) |
-| Consumido pela API | `ocorrencia.triada`, no `OcorrenciaTriadaConsumer` |
+| Stack | Java 21, Spring Boot 3.5 (Web, Data JPA, Validation, Security, AMQP, Actuator), Spring AI, springdoc-openapi |
+| Segurança | JWT HS256, senhas com BCrypt, papéis `PRODUTOR`, `AGRONOMO` e `GESTOR` com `@PreAuthorize` |
+| IA generativa no produto | Spring AI faz a triagem das ocorrências e a análise de denúncias do mural |
+| Mensageria | RabbitMQ (CloudAMQP): publica `ocorrencia.triada` e `laudo.emitido` na exchange `valence.eventos` e consome `ocorrencia.triada` para gerar alertas |
+| Banco | 12 tabelas `TB_`, DDL em [`scripts/script-bd.sql`](scripts/script-bd.sql) |
+| Testes | JUnit 5, Spring Boot Test, MockMvc e Mockito, sem rede, broker ou LLM (H2 em memória) |
 
-- O `EventoProducer` publica só **depois do commit** da transação (`@TransactionalEventListener(AFTER_COMMIT)`), em JSON UTF-8 com `messageId` igual ao `eventoId`. Com o broker fora do ar, a requisição não falha: o erro vai para o log.
-- O consumidor busca propriedades da mesma cultura no raio de `ALERTA_RAIO_KM` (fórmula de Haversine) e cria alertas `SUSPEITA` com a distância arredondada.
-- **Idempotência:** cada `eventoId` processado fica em `TB_EVENTO_PROCESSADO`; uma mensagem repetida é ignorada. O par ocorrência e propriedade é único em `TB_ALERTA`.
-- Mensagem com erro é tentada 3 vezes e depois descartada sem reenfileirar.
+**Endpoints principais**
 
-Para ver funcionando: suba a API, faça login como `produtor@valence.local`, registre uma ocorrência de milho na propriedade de teste e envie uma foto. Com a triagem confiável, o painel do RabbitMQ mostra a mensagem e `vizinho@valence.local` passa a ter um alerta em `GET /api/alertas`.
+| Método | Rota | Papel |
+| --- | --- | --- |
+| POST | `/api/auth/registrar`, `/api/auth/login` | público |
+| GET, POST | `/api/propriedades` | PRODUTOR |
+| GET, PUT, DELETE | `/api/propriedades/{id}` | PRODUTOR (dono) |
+| GET, POST | `/api/ocorrencias` | PRODUTOR |
+| GET | `/api/ocorrencias/{id}` | dono, AGRONOMO, GESTOR |
+| PUT, DELETE | `/api/ocorrencias/{id}` | dono |
+| POST | `/api/ocorrencias/{id}/fotos` | dono |
+| POST | `/api/ocorrencias/{id}/laudo` | AGRONOMO |
+| GET | `/api/alertas` | PRODUTOR |
+| GET, POST | `/api/mural` | autenticado |
+| GET | `/actuator/health`, `/actuator/info` | público |
 
-## Modelagem
-
-```mermaid
-erDiagram
-    TB_USUARIO ||--o{ TB_PROPRIEDADE : possui
-    TB_USUARIO ||--o{ TB_OCORRENCIA : registra
-    TB_PROPRIEDADE ||--o{ TB_PROPRIEDADE_CULTURA : cultiva
-    TB_PROPRIEDADE ||--o{ TB_OCORRENCIA : "local da"
-    TB_OCORRENCIA ||--o{ TB_FOTO_OCORRENCIA : tem
-    TB_OCORRENCIA ||--o| TB_TRIAGEM : recebe
-    TB_OCORRENCIA ||--o{ TB_LAUDO : recebe
-    TB_USUARIO ||--o{ TB_LAUDO : "emite (agrônomo)"
-    TB_OCORRENCIA ||--o{ TB_ALERTA : gera
-    TB_PROPRIEDADE ||--o{ TB_ALERTA : recebe
-    TB_USUARIO ||--o{ TB_POST_MURAL : publica
-    TB_POST_MURAL ||--o{ TB_COMENTARIO : tem
-    TB_POST_MURAL ||--o{ TB_DENUNCIA : recebe
-    TB_USUARIO ||--o{ TB_COMENTARIO : escreve
-    TB_USUARIO ||--o{ TB_DENUNCIA : faz
-```
-
-`TB_EVENTO_PROCESSADO` guarda os eventos já consumidos. O DDL completo está em [`scripts/script-bd.sql`](scripts/script-bd.sql).
-
-Status da ocorrência: `RECEBIDA` → `TRIADA` ou `EM_ANALISE` → `CONFIRMADA` ou `DESCARTADA`. Laudo `MAIS_INFORMACOES` mantém `EM_ANALISE`. Ocorrências sem foto há 10 minutos passam por triagem só com o texto.
-
-## Formato de erro
-
-```json
-{
-  "timestamp": "2026-11-10T14:32:00Z",
-  "status": 400,
-  "erro": "Requisição inválida",
-  "mensagem": "Um ou mais campos são inválidos.",
-  "caminho": "/api/ocorrencias",
-  "campos": [ { "campo": "descricao", "mensagem": "A descrição é obrigatória." } ]
-}
-```
-
-Códigos usados: 200, 201, 204, 400, 401, 403, 404, 405, 409, 413, 415, 422 e 500.
-
-## Testes
-
-```bash
-./mvnw test
-```
-
-Os testes rodam sem rede, sem broker, sem LLM e sem o serviço de IA: o `ChatModel`, o cliente do serviço de IA e o `RabbitTemplate` são simulados com `@MockitoBean`, e o banco é H2 em memória. Cobrem cadastro e login, 401 e 403 por papel, validação e formato de erro, CRUD com paginação, `Idempotency-Key`, envio de foto, triagem com e sem falhas do modelo, consumo idempotente de eventos, alertas, laudo, mural, denúncia e moderação.
-
-## Deploy no Azure
-
-### Provisionamento (Azure CLI em PowerShell)
-
-Os scripts ficam em `scripts/`, um passo por arquivo, e rodam no Azure Cloud Shell (PowerShell) ou no Windows PowerShell com `az login` feito. Na raiz do repositório, execute na ordem:
-
-```powershell
-. .\scripts\00-Variaveis.ps1
-.\scripts\01-ResourceGroup.ps1
-.\scripts\02-AppServicePlan.ps1
-.\scripts\03-WebApp.ps1
-.\scripts\04-Database.ps1
-.\scripts\05-ScriptBD.ps1
-.\scripts\06-AppSettings.ps1
-```
-
-O `00` é executado com ponto (`. `) para as variáveis ficarem na sessão. Os segredos são digitados de forma oculta e não são gravados em arquivo.
-
-| Script | O que faz |
-| --- | --- |
-| `00-Variaveis.ps1` | Define os nomes dos recursos e lê a senha do SQL, o segredo do JWT e, opcionais, a chave do LLM, a URI do RabbitMQ e a chave do serviço de IA |
-| `01-ResourceGroup.ps1` | Registra os provedores `Microsoft.Web` e `Microsoft.Sql` e cria o Resource Group `rg-valence-rm562396` em `mexicocentral` |
-| `02-AppServicePlan.ps1` | Cria o plano `plan-valence-rm562396` (Linux, B1) |
-| `03-WebApp.ps1` | Cria o Web App `valence-rm562396` com Java 21, Always On, health check em `/actuator/health/liveness` e só HTTPS |
-| `04-Database.ps1` | Cria o Azure SQL `sqlserver-valence-rm562396`, o banco `bd_valence` (Basic) e as regras de firewall para os serviços do Azure e para o IP da máquina |
-| `05-ScriptBD.ps1` | Executa `scripts/script-bd.sql` com o `sqlcmd` e lista as tabelas criadas (o Cloud Shell já tem o `sqlcmd`) |
-| `06-AppSettings.ps1` | Grava as variáveis de ambiente da API no Web App (perfil `prod`, banco, JWT, LLM, RabbitMQ, IA e pasta de fotos) |
-| `07-Remover.ps1` | Remove o Resource Group inteiro: `.\scripts\07-Remover.ps1` |
-
-### Pipelines
-
-- **Build (CI):** `azure-pipeline.yml` instala o Java 21, roda `mvn clean package` com os testes JUnit publicados e publica o artefato `valence-api` com o `.jar`. O gatilho é a branch `main`, protegida por política de PR.
-- **Release (CD):** pipeline clássica (Pipelines ▸ Releases), disparada automaticamente por um novo artefato `valence-api`, faz o deploy do `.jar` no Web App `valence-rm562396`.
-
-## JSON de CRUD
-
-**Propriedade** (`/api/propriedades`, token de PRODUTOR)
-
-```json
-POST /api/propriedades
-{
-  "nome": "Sítio Boa Vista",
-  "municipio": "Ribeirão Preto",
-  "uf": "SP",
-  "latitude": -21.21,
-  "longitude": -47.84,
-  "areaHectares": 15.5,
-  "culturas": ["MILHO", "TOMATE"]
-}
-
-PUT /api/propriedades/{id}
-{
-  "nome": "Sítio Boa Vista II",
-  "municipio": "Ribeirão Preto",
-  "uf": "SP",
-  "latitude": -21.21,
-  "longitude": -47.84,
-  "areaHectares": 18.0,
-  "culturas": ["MILHO"]
-}
-
-GET /api/propriedades?page=0&size=10
-GET /api/propriedades/{id}
-DELETE /api/propriedades/{id}
-```
-
-**Ocorrência** (`/api/ocorrencias`, token de PRODUTOR)
-
-```json
-POST /api/ocorrencias
-Idempotency-Key: 3f6c1e2a-8b4d-4e9a-9c1f-2d7e5a6b8c90
-{
-  "propriedadeId": 1,
-  "cultura": "MILHO",
-  "descricao": "Folhas com pústulas alaranjadas e plantas avermelhadas perto da cerca."
-}
-
-PUT /api/ocorrencias/{id}
-{
-  "propriedadeId": 1,
-  "cultura": "MILHO",
-  "descricao": "Pústulas alaranjadas nas duas faces da folha."
-}
-
-GET /api/ocorrencias?status=RECEBIDA&page=0&size=10&sort=dataRegistro,desc
-GET /api/ocorrencias/{id}
-DELETE /api/ocorrencias/{id}
-```
-
-Consultas para conferir no banco: `SELECT * FROM TB_PROPRIEDADE;` e `SELECT * FROM TB_OCORRENCIA;`.
-
-## Coleção do Postman
-
-[`postman/valence-api.postman_collection.json`](postman/valence-api.postman_collection.json): importe no Postman, ajuste `baseUrl` e rode as pastas na ordem. Os logins guardam os tokens nas variáveis da coleção.
+A lista completa, com exemplos, está no Swagger. A coleção do Postman fica em [`postman/valence-api.postman_collection.json`](postman/valence-api.postman_collection.json).
 
 ## Uso de IA generativa
 
-- **No produto:** LLM da Groq pelo Spring AI (triagem e análise de denúncias), como descrito acima.
-- **No desenvolvimento:** o Claude (Anthropic) foi usado como apoio para estruturar o projeto, sugerir código e testes, revisar o README e explicar erros. Todo o código foi revisado, executado e entendido pelo integrante responsável, que responde por ele na apresentação.
+- **No produto:** um LLM, chamado pelo Spring AI, faz a triagem das ocorrências e a análise de denúncias.
+- **No desenvolvimento:** o Claude (Anthropic) foi usado como apoio para estruturar o projeto, sugerir código e testes e explicar erros.
+- **No DevOps:** o Claude foi usado como apoio no planejamento das etapas, na revisão dos scripts Azure CLI e do YAML do Build, no desenho da arquitetura e na redação deste README.
+
+Tudo foi revisado, executado e entendido pelo grupo, que responde por cada parte na apresentação.
