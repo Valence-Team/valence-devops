@@ -4,12 +4,13 @@ API núcleo do **Valence**, uma rede pública e colaborativa de vigilância fito
 
 | Integrante | RM |
 | --- | --- |
-| Henrique Martins | 563620 |
-| Guilherme Macedo | 562396 |
-| Pedro Henrique | 563405 |
+| Henrique Martins Oliveira | 563620 |
+| Guilherme Macedo Martins | 562396 |
+| Pedro Henrique Luiz Alves Duarte | 563405 |
 
-- **Deploy (Azure App Service):** `https://valence-rm562396.azurewebsites.net/swagger-ui.html` *(confirmar após o primeiro deploy)*
-- **Vídeo pitch:** *(link do YouTube)*
+- **Deploy (Azure App Service):** https://valence-rm562396.azurewebsites.net/swagger-ui/index.html
+- **URL base consumida pelo app Mobile:** `https://valence-rm562396.azurewebsites.net`
+- **Vídeo pitch:** https://youtu.be/tXa5CGyGAFw?si=qEKd4yVI-ADRE_SN
 - **Arquitetura distribuída escolhida (requisito 5):** **opção A, RabbitMQ**, com evento publicado e consumido de forma assíncrona pela própria API.
 
 ## O problema e o cidadão beneficiado
@@ -139,7 +140,7 @@ Os valores reais nunca vão para o Git; os nomes estão em [`.env.example`](.env
 | `LLM_COMPLETIONS_PATH`, `LLM_TIMEOUT_SECONDS` | Caminho do endpoint de chat e tempo limite | `/v1/chat/completions`, 20 |
 | `ALERTA_RAIO_KM` | Raio dos alertas | 10 |
 | `FOTOS_DIR` | Pasta das fotos | `./data/fotos` (`/home/data/fotos` no Azure) |
-| `CORS_ORIGENS` | Origens de navegador liberadas | vazio |
+| `CORS_ORIGENS` | Origens de navegador liberadas, separadas por vírgula. Para o app Mobile no navegador (`npx expo start` e tecla w), use `http://localhost:8081` | vazio |
 
 ## Usuários de teste
 
