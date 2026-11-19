@@ -7,7 +7,7 @@ O **Valence** é uma rede pública e colaborativa de vigilância fitossanitária
 | Link | Endereço |
 | --- | --- |
 | Organização no Azure DevOps | [https://dev.azure.com/valence-devops-rm562396](https://dev.azure.com/valence-devops-rm562396) |
-| Vídeo da disciplina de DevOps | [https://youtu.be/iuB_7Xt6FKA](https://youtu.be/iuB_7Xt6FKA) |
+| Vídeo da disciplina de DevOps | LINK_DO_VIDEO_DEVOPS |
 | API em produção | [https://valence-rm562396.azurewebsites.net](https://valence-rm562396.azurewebsites.net) |
 | Swagger | [https://valence-rm562396.azurewebsites.net/swagger-ui.html](https://valence-rm562396.azurewebsites.net/swagger-ui.html) |
 | Saúde da API | [https://valence-rm562396.azurewebsites.net/actuator/health](https://valence-rm562396.azurewebsites.net/actuator/health) |
