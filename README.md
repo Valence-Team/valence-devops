@@ -7,7 +7,7 @@ O **Valence** é uma rede pública e colaborativa de vigilância fitossanitária
 | Link | Endereço |
 | --- | --- |
 | Organização no Azure DevOps | [https://dev.azure.com/valence-devops-rm562396](https://dev.azure.com/valence-devops-rm562396) |
-| Vídeo da disciplina de DevOps | LINK_DO_VIDEO_DEVOPS |
+| Vídeo da disciplina de DevOps | [https://youtu.be/iuB_7Xt6FKA](https://youtu.be/iuB_7Xt6FKA) |
 | API em produção | [https://valence-rm562396.azurewebsites.net](https://valence-rm562396.azurewebsites.net) |
 | Swagger | [https://valence-rm562396.azurewebsites.net/swagger-ui.html](https://valence-rm562396.azurewebsites.net/swagger-ui.html) |
 | Saúde da API | [https://valence-rm562396.azurewebsites.net/actuator/health](https://valence-rm562396.azurewebsites.net/actuator/health) |
@@ -55,8 +55,6 @@ A infraestrutura é criada por scripts Azure CLI que ficam neste repositório.
 ## Arquitetura macro
 
 ![Arquitetura DevOps do Valence](docs/arquitetura-devops.png)
-
-Fonte editável: [`docs/arquitetura-devops.drawio`](docs/arquitetura-devops.drawio) (abre no [diagrams.net](https://app.diagrams.net)).
 
 **Legenda das setas**
 
@@ -120,7 +118,7 @@ Fonte editável: [`docs/arquitetura-devops.drawio`](docs/arquitetura-devops.draw
 | Região | `mexicocentral` | |
 | Resource Group | `rg-valence-rm562396` | |
 | App Service Plan | `plan-valence-rm562396` | Linux, B1 |
-| Web App | `valence-rm562396` | Java 21, Always On, só HTTPS, health check em `/actuator/health/liveness` |
+| Web App | `valence-rm562396` | Java 21 e Always On (script `03`); a Release confere o `/actuator/health/liveness` depois de cada deploy |
 | Servidor SQL | `sqlserver-valence-rm562396` | Firewall para os serviços do Azure e para o IP do cliente |
 | Banco | `bd_valence` | Basic, usuário administrador `valenceadmin` |
 
@@ -248,7 +246,7 @@ scripts/             provisionamento em Azure CLI (PowerShell)
   07-Remover.ps1       remove o Resource Group
   script-bd.sql        DDL das 12 tabelas TB_
 dockerfiles/         Dockerfile da API e docker-compose.yml do perfil dev
-docs/                diagrama de arquitetura (PNG e fonte .drawio)
+docs/                diagrama de arquitetura (PNG)
 postman/             coleção do Postman
 src/                 código-fonte e testes da API
 .env.example         nomes das variáveis de ambiente com valores fictícios
